@@ -25,7 +25,7 @@ build_lut <- function(img_in_path,
                          k_neighbors = 8, 
                          power = 2.0, 
                          apply_smooth = FALSE, sigma = 0.8,  # gaussian blur parameter
-                         force_0 = FALSE, force_1 = FALSE) {
+                         force_0 = FALSE, force_1 = FALSE) {  # force (0,0,0) and/or (1,1,1)
     
     cat("Cargando imágenes...\n")
     img1 <- readTIFF(img_in_path)
