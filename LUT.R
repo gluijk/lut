@@ -723,7 +723,6 @@ apply_lut(
     output_image_path = "output_lite.tif"
 )
 
-
 # Visualization
 
 # Básica
