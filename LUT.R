@@ -1,6 +1,6 @@
-# Building and applying LUTs
+# Building, applying and visualizing LUTs
 # www.overfitting.net
-# https://www.overfitting.net/
+# https://www.overfitting.net/2026/09/ingenieria-inversa-de-procesado-de.html
 
 
 library(Rcpp)
@@ -740,7 +740,6 @@ plot_lut("lut.cube", grid = 7, line_width = 1, show_vectors = TRUE, vector_step 
 # EJEMPLO 2: PROCESADO BN
 
 # LUT 3D 36x36x36 -> 216x216 HaldCLUT
-build_lut("input.tif", "outputbn.tif", "lut_bn", N = 36, force_0=TRUE, force_1=TRUE)
 build_lut("input.tif", "outputbn.tif", "lut_bn", N = 36, force_0=TRUE, force_1=TRUE)
 
 # Apply a .cube LUT
