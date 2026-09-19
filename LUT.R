@@ -1,4 +1,4 @@
-# Building, applying and visualizing LUTs
+# Building, applying and visualizing image processing LUTs
 # www.overfitting.net
 # https://www.overfitting.net/2026/09/ingenieria-inversa-de-procesado-de.html
 
@@ -19,13 +19,13 @@ sourceCpp("apply_LUT.cpp")
 
 # 1. Generate a LUT from a pair of images (input/output) both in .cube and HaldCLUT formats
 build_lut <- function(img_in_path, 
-                         img_out_path, 
-                         output_base_path, 
-                         N = 33, 
-                         k_neighbors = 8, 
-                         power = 2.0, 
-                         apply_smooth = FALSE, sigma = 0.8,  # gaussian blur parameter
-                         force_0 = FALSE, force_1 = FALSE) {  # force (0,0,0) and/or (1,1,1)
+                     img_out_path, 
+                     output_base_path, 
+                     N = 33, 
+                     k_neighbors = 8, 
+                     power = 2.0, 
+                     apply_smooth = FALSE, sigma = 0.8,  # gaussian blur parameter
+                     force_0 = FALSE, force_1 = FALSE) {  # force (0,0,0) and/or (1,1,1)
     
     cat("Cargando imágenes...\n")
     img1 <- readTIFF(img_in_path)
