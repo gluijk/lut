@@ -143,8 +143,14 @@ apply_lut <- function(input_image_path, lut_path, output_image_path) {
 
 # 3. LUT 3D Visualization from .cube format LUT
 
-# Para una LUT `33³` empezaría con grid = 7, es suficientemente densa para revelar
-# la geometría de la transformación sin convertir la escena en una maraña de 35.937 elementos.
+# (NOTE: L gets named N in build_lut())
+# Native LUT Dimensions & Divisibility: a standard 3D LUT size L^3 has discrete sample nodes indexed
+# from 0 to N-1
+# To avoid interpolation artifacts in the visualization choose step sizes (s) such that:
+# (L - 1) %% s = 0 -> grid = (L - 1) / s + 1 (integer value)
+#   36x36x36 LUT -> L = 36 -> (36 - 1) %% s = 0 -> s = c(35,7,5,1) -> grid = c(2,6,8,36)
+#   33x33x33 LUT -> L = 33 -> (33 - 1) %% s = 0 -> s = c(32,16,8,4,2,1) -> grid = c(2,3,5,9,17,33)
+
 
 # ============================================================
 # READ .CUBE 3D LUT
@@ -332,7 +338,7 @@ plot_lut <- function(
             )
         }
         
-        # Deactivated because they were a bit messy
+        # Deactivated because they were a bit messy, cube vertices not really meaningful
         # # Draw cube vertices
         # spheres3d(
         #     V[, 1],
@@ -726,13 +732,13 @@ apply_lut(
 # Visualization
 
 # Básica
-plot_lut("lut.cube", grid = 3)
+plot_lut("lut.cube", grid = 6)
 
 # Más densa
-plot_lut("lut.cube", grid = 10, line_width = 2)
+plot_lut("lut.cube", grid = 8, line_width = 2)
 
 # Para visualizar además los vectores de transformación (cómo se desplaza cada punto)
-plot_lut("lut.cube", grid = 7, line_width = 1, show_vectors = TRUE, vector_step = 4)
+plot_lut("lut.cube", grid = 8, line_width = 1, show_vectors = TRUE, vector_step = 4)
 
 
 ##################################
@@ -751,9 +757,41 @@ apply_lut(
 # Visualization
 plot_lut(
     "lut_bn.cube",
-    grid = 10,
+    grid = 8,
     line_width = 1,
-    show_vectors = TRUE,
-    vector_step = 4
+    show_vectors = TRUE, vector_step = 4
 )
 
+
+##################################
+# EJEMPLO 3: CONVERSIÓN ESPACIOS DE COLOR
+
+# LUT 3D 36x36x36 -> 216x216 HaldCLUT
+build_lut("input.tif", "outputsrgb2prophoto.tif", "lut_srgb2prophoto", N = 36, force_0=TRUE, force_1=TRUE)
+build_lut("input.tif", "outputadobergb2prophoto.tif", "lut_adobergb2prophoto", N = 36, force_0=TRUE, force_1=TRUE)
+
+# Apply a .cube LUT
+apply_lut(
+    input_image_path  = "input_lite_srgb.tif",
+    lut_path          = "lut_srgb2prophoto.cube",
+    output_image_path = "output_lite_srgb2prophoto.tif"
+)
+
+apply_lut(
+    input_image_path  = "input_lite_adobergb.tif",
+    lut_path          = "lut_adobergb2prophoto.cube",
+    output_image_path = "output_lite_adobergb2prophoto.tif"
+)
+
+# Visualization
+plot_lut(
+    "lut_srgb2prophoto.cube",
+    grid = 8,
+    line_width = 2
+)
+
+plot_lut(
+    "lut_adobergb2prophoto.cube",
+    grid = 8,
+    line_width = 2
+)
