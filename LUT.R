@@ -17,7 +17,8 @@ sourceCpp("build_LUT.cpp")
 sourceCpp("apply_LUT.cpp")
 
 
-# 1. Generate a LUT from a pair of images (input/output) both in .cube and HaldCLUT formats
+# 1. Generate a LUT from a pair of images (input/output) both in .cube
+#    and HaldCLUT (8-bit PNG + 16-bit TIFF) formats
 build_lut <- function(img_in_path, 
                      img_out_path, 
                      output_base_path, 
@@ -53,7 +54,7 @@ build_lut <- function(img_in_path,
     close(con)
     cat("✓ Archivo .cube guardado en:", cube_path, "\n")
     
-    # --- 2. Exportar en formato HaldCLUT (PNG) ---
+    # --- 2. Exportar en formato HaldCLUT (PNG and TIFF) ---
     png_path <- paste0(output_base_path, "_hald.png")
     tif_path <- paste0(output_base_path, "_hald.tif")
     
@@ -73,10 +74,10 @@ build_lut <- function(img_in_path,
         }
     }
     
-    writePNG(hald_img, png_path)  # unfortunately only 8-bit PNGs are possible with writePNG()
-    writeTIFF(hald_img, tif_path, bits.per.sample = 16)  # save as 16-bit PNG later
+    writePNG(hald_img, png_path)  # save as 8-bit PNG (writePNG() doesn't support 16-bit PNG)
+    writeTIFF(hald_img, tif_path, bits.per.sample = 16)  # save as 16-bit TIFF
     cat("✓ Archivo HaldCLUT PNG (8 bits) guardado en:", png_path, "\n")
-    cat("✓ Archivo HaldCLUT TIF (16 bits) guardado en:", tif_path, "\n")
+    cat("✓ Archivo HaldCLUT TIFF (16 bits) guardado en:", tif_path, "\n")
 }
 
 
@@ -729,6 +730,7 @@ apply_lut(
     output_image_path = "output_lite.tif"
 )
 
+
 # Visualization
 
 # Básica
@@ -739,6 +741,14 @@ plot_lut("lut.cube", grid = 8, line_width = 2)
 
 # Para visualizar además los vectores de transformación (cómo se desplaza cada punto)
 plot_lut("lut.cube", grid = 8, line_width = 1, show_vectors = TRUE, vector_step = 4)
+
+
+# Error vs genuine processing
+imgps=readTIFF("imageprocess.tif")  # Photoshop 16-bit processing
+imglut=readTIFF("output_lite.tif")  # LUT 16-bit processing
+error=(imglut-imgps)*255  # error in 8-bit levels
+hist(error, breaks=800, xlim=c(-2,4),
+     xlab='Error LUT-Photoshop (8-bit levels)', main=paste0('Avg |E|: ', round(mean(abs(error)),2), " 8-bit levels"))
 
 
 ##################################
@@ -754,6 +764,7 @@ apply_lut(
     output_image_path = "output_lite_BN.tif"
 )
 
+
 # Visualization
 plot_lut(
     "lut_bn.cube",
@@ -761,6 +772,14 @@ plot_lut(
     line_width = 1,
     show_vectors = TRUE, vector_step = 4
 )
+
+
+# Error vs genuine processing
+imgps=readTIFF("imageprocessbn.tif")  # Photoshop 16-bit processing
+imglut=readTIFF("output_lite_BN.tif")  # LUT 16-bit processing
+error=(imglut-imgps)*255
+hist(error, breaks=800, xlim=c(-2,4),
+     xlab='Error LUT-Photoshop (8-bit levels)', main=paste0('Avg |E|: ', round(mean(abs(error)),2), " 8-bit levels"))
 
 
 ##################################
@@ -782,6 +801,7 @@ apply_lut(
     lut_path          = "lut_adobergb2prophoto.cube",
     output_image_path = "output_lite_adobergb2prophoto.tif"
 )
+
 
 # Visualization
 plot_lut(
