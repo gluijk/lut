@@ -15,6 +15,8 @@ Sys.setenv("PKG_LIBS" = "-fopenmp")
 
 sourceCpp("build_LUT.cpp")
 sourceCpp("apply_LUT.cpp")
+sourceCpp("convert_LUT.cpp")
+
 
 
 # 1. Generate a LUT from a pair of images (input/output) both in .cube
@@ -81,6 +83,7 @@ build_lut <- function(img_in_path,
 }
 
 
+
 # 2. Apply a LUT to an image either in .cube or HaldCLUT format
 apply_lut <- function(input_image_path, lut_path, output_image_path) {
     
@@ -103,27 +106,51 @@ apply_lut <- function(input_image_path, lut_path, output_image_path) {
     if (ext_lut == "cube") {
         cat("Applying .cube LUT via trilinear interpolation...\n")
         out_mat <- apply_lut_cube_cpp(img_mat, lut_path)
-    } else if (ext_lut == "png") {
-        cat("Reading HaldCLUT PNG...\n")
-        hald_img <- readPNG(lut_path)
+        
+    } else if (ext_lut %in% c("png", "tif", "tiff")) {
+        cat("Reading HaldCLUT image...\n")
+        
+        if (ext_lut == "png") {
+            hald_img <- readPNG(lut_path)
+        } else {
+            hald_img <- readTIFF(lut_path)
+        }
+        
         if (length(dim(hald_img)) == 3 && dim(hald_img)[3] >= 3) {
             hald_img <- hald_img[,,1:3]
         }
         
-        hald_dim <- dim(hald_img)[1]
+        hald_side <- dim(hald_img)[1] # Ej. 729 para N = 81
         
-        # HaldCLUT dimension side = N^1.5
-        N <- round(hald_dim^(2/3))
+        # N es la resolución de la LUT 3D (ej. para hald_side = 729 -> N = 81)
+        N <- round(hald_side^(2/3))
+        level <- round(sqrt(N))
         
-        # CORRECCIÓN: Reorganizar los ejes a [Canales, Ancho, Alto] 
-        # antes de aplanar a vector 1D para C++
-        lut_vector <- as.vector(aperm(hald_img, c(3, 2, 1)))
+        # Reconstruir el array 3D [R, G, B, Channels]
+        lut_3d <- array(0.0, dim = c(N, N, N, 3))
+        
+        for (b in 0:(N - 1)) {
+            for (g in 0:(N - 1)) {
+                g_lo <- g %% level
+                g_hi <- g %/% level
+                for (r in 0:(N - 1)) {
+                    # Coordenadas Hald 2D estándar alineadas con el creador (1-based para R)
+                    hald_x <- r + (g_lo * N) + 1
+                    hald_y <- g_hi + (b * level) + 1
+                    
+                    lut_3d[r + 1, g + 1, b + 1, ] <- hald_img[hald_y, hald_x, ]
+                }
+            }
+        }
+        
+        # Reordenar ejes a [Canales, R, G, B] para aplanar al orden C++ (R varia rápido, luego G, luego B)
+        lut_vector <- as.vector(aperm(lut_3d, c(4, 1, 2, 3)))
         
         cat("Applying HaldCLUT (N =", N, ") via trilinear interpolation...\n")
         out_mat <- apply_lut_array_cpp(img_mat, lut_vector, N)
         
     } else {
-        stop("Unsupported LUT extension. Use .cube or .png (HaldCLUT).")
+        stop("Unsupported LUT extension. Use .cube, .png, or .tif/.tiff (HaldCLUT).")
     }
     
     # 3. Reconstruct image array and save to disk
@@ -142,15 +169,234 @@ apply_lut <- function(input_image_path, lut_path, output_image_path) {
 }
 
 
-# 3. LUT 3D Visualization from .cube format LUT
+# 3. Convert/resample LUTs
 
-# (NOTE: L gets named N in build_lut())
-# Native LUT Dimensions & Divisibility: a standard 3D LUT size L^3 has discrete sample nodes indexed
-# from 0 to N-1
-# To avoid interpolation artifacts in the visualization choose step sizes (s) such that:
-# (L - 1) %% s = 0 -> grid = (L - 1) / s + 1 (integer value)
-#   36x36x36 LUT -> L = 36 -> (36 - 1) %% s = 0 -> s = c(35,7,5,1) -> grid = c(2,6,8,36)
-#   33x33x33 LUT -> L = 33 -> (33 - 1) %% s = 0 -> s = c(32,16,8,4,2,1) -> grid = c(2,3,5,9,17,33)
+# Pure base R helper to replace tools::file_ext
+get_file_ext <- function(filepath) {
+    parts <- strsplit(basename(filepath), "\\.")[[1]]
+    if (length(parts) < 2) return("")
+    return(tolower(parts[length(parts)]))
+}
+
+# Base R helper to read .cube text files
+read_cube_file <- function(cube_path) {
+    lines <- readLines(cube_path)
+    lines <- lines[!grepl("^#", lines) & nchar(trimws(lines)) > 0]
+    
+    size_line <- lines[grepl("LUT_3D_SIZE", lines)]
+    if (length(size_line) == 0) {
+        stop("Invalid .cube file: 'LUT_3D_SIZE' header not found.")
+    }
+    src_N <- as.integer(sub(".*LUT_3D_SIZE\\s+([0-9]+).*", "\\1", size_line[1]))
+    
+    data_lines <- lines[!grepl("^[A-Z_]", lines)]
+    lut_mat <- do.call(rbind, lapply(strsplit(trimws(data_lines), "\\s+"), as.numeric))
+    
+    if (nrow(lut_mat) != src_N^3 || ncol(lut_mat) != 3) {
+        stop("Mismatch between specified LUT_3D_SIZE and RGB data in .cube file.")
+    }
+    
+    return(list(matrix = lut_mat, N = src_N))
+}
+
+# Main Wrapper
+convert_resample_lut <- function(input_lut_path, 
+                                 target_N, 
+                                 output_cube_path = NULL, 
+                                 output_hald_path = NULL, 
+                                 force_0 = FALSE, 
+                                 force_1 = FALSE) {
+    
+    # 1. Read input LUT (.cube or HaldCLUT image) without tools library
+    ext_lut <- get_file_ext(input_lut_path)
+    
+    if (ext_lut == "cube") {
+        cat("Reading .cube LUT file...\n")
+        parsed_cube <- read_cube_file(input_lut_path)
+        input_mat <- parsed_cube$matrix
+        src_N     <- parsed_cube$N
+        input_fmt <- "cube"
+        
+    } else if (ext_lut %in% c("png", "tif", "tiff")) {
+        cat("Reading HaldCLUT image...\n")
+        if (ext_lut == "png") {
+            hald_img <- readPNG(input_lut_path)
+        } else {
+            hald_img <- readTIFF(input_lut_path)
+        }
+        
+        if (length(dim(hald_img)) == 3 && dim(hald_img)[3] >= 3) {
+            hald_img <- hald_img[,, 1:3]
+        }
+        
+        hald_dim <- dim(hald_img)[1]
+        
+        # HaldCLUT image dimension side = N^1.5 (where N = level^2)
+        src_N <- round(hald_dim^(2/3))
+        
+        # Flatten spatial pixels to (N^3 x 3) matrix
+        input_mat <- matrix(hald_img, ncol = 3)
+        input_fmt <- "hald"
+        
+    } else {
+        stop("Unsupported input LUT extension. Use .cube, .png, or .tiff")
+    }
+    
+    cat(paste0("Converting from ", input_fmt, " (N = ", src_N, ") to target_N = ", target_N, "...\n"))
+    
+    # 2. Call C++ resampling core
+    res <- convert_resample_lut_cpp(
+        input_lut    = input_mat,
+        src_N        = src_N,
+        target_N     = target_N,
+        input_format = input_fmt,
+        force_0      = force_0,
+        force_1      = force_1
+    )
+    
+    # 3. Export to .cube if requested
+    if (!is.null(output_cube_path)) {
+        cat("Exporting to .cube file:", output_cube_path, "...\n")
+        
+        con <- file(output_cube_path, "w")
+        writeLines(c(
+            "# Created via convert_resample_lut",
+            paste("LUT_3D_SIZE", target_N),
+            "DOMAIN_MIN 0.0 0.0 0.0",
+            "DOMAIN_MAX 1.0 1.0 1.0"
+        ), con)
+        
+        cube_mat <- res$cube
+        for (i in 1:nrow(cube_mat)) {
+            writeLines(sprintf("%.6f %.6f %.6f", cube_mat[i, 1], cube_mat[i, 2], cube_mat[i, 3]), con)
+        }
+        close(con)
+        cat("✓ Saved .cube LUT to:", output_cube_path, "\n")
+    }
+    
+    # 4. Export to HaldCLUT image if requested
+    if (!is.null(output_hald_path)) {
+        if (is.null(res$hald)) {
+            stop("Cannot export to HaldCLUT: target_N (", target_N, ") must be a perfect square (e.g., 16, 64).")
+        }
+        
+        cat("Exporting to HaldCLUT image:", output_hald_path, "...\n")
+        
+        hald_side  <- res$hald_dim[1]
+        hald_array <- array(res$hald, dim = c(hald_side, hald_side, 3))
+        
+        ext_out <- get_file_ext(output_hald_path)
+        if (ext_out %in% c("tif", "tiff")) {
+            writeTIFF(hald_array, output_hald_path, bits.per.sample = 16)
+        } else if (ext_out == "png") {
+            writePNG(hald_array, output_hald_path)
+        } else {
+            stop("Unsupported output format for HaldCLUT image. Use TIFF or PNG.")
+        }
+        cat("✓ Saved HaldCLUT image to:", output_hald_path, "\n")
+    }
+    
+    invisible(res)
+}
+
+
+
+# 4. Create Identity LUT (.cube + HaldCLUT whenever possible)
+generate_identity_lut <- function(N = 81, 
+                                  output_cube_path = "identity_lut.cube", 
+                                  output_hald_path = "identity_haldclut.png") {
+    
+    cat(paste0("Generating Identity LUT (N = ", N, ", Grid = ", N, "x", N, "x", N, ")...\n"))
+    
+    get_file_ext <- function(filepath) {
+        parts <- strsplit(basename(filepath), "\\.")[[1]]
+        if (length(parts) < 2) return("")
+        return(tolower(parts[length(parts)]))
+    }
+    
+    # 1. Generate .cube file
+    if (!is.null(output_cube_path)) {
+        con <- file(output_cube_path, "w")
+        writeLines(c(
+            "# Created via generate_identity_lut()",
+            paste0('TITLE "Generated_LUT_', N, 'x', N, 'x', N, '"'),
+            paste0('LUT_3D_SIZE ', N),
+            ''
+        ), con)
+        
+        for (b in 0:(N - 1)) {
+            norm_b <- b / (N - 1)
+            for (g in 0:(N - 1)) {
+                norm_g <- g / (N - 1)
+                for (r in 0:(N - 1)) {
+                    norm_r <- r / (N - 1)
+                    writeLines(sprintf("%.6f %.6f %.6f", norm_r, norm_g, norm_b), con)
+                }
+            }
+        }
+        close(con)
+        cat("✓ Saved identity .cube LUT to:", output_cube_path, "\n")
+    }
+    
+    # 2. Generate HaldCLUT file
+    level <- round(sqrt(N))
+    can_make_hald <- (level * level == N)
+    
+    if (!is.null(output_hald_path)) {
+        if (!can_make_hald) {
+            cat("ℹ Skipping HaldCLUT generation: N = ", N, " is not a perfect square.\n")
+        } else {
+            hald_side <- level^3  # Para N = 81 -> 9^3 = 729
+            hald_array <- array(0.0, dim = c(hald_side, hald_side, 3))
+            
+            for (b in 0:(N - 1)) {
+                norm_b <- b / (N - 1)
+                for (g in 0:(N - 1)) {
+                    norm_g <- g / (N - 1)
+                    g_lo <- g %% level
+                    g_hi <- g %/% level
+                    for (r in 0:(N - 1)) {
+                        norm_r <- r / (N - 1)
+                        
+                        # Coordenadas Hald 2D corregidas (1-based index para R)
+                        # hald_x varía de 1 a L^3 (ej. 1 a 729 para N=81)
+                        # hald_y varía de 1 a L^3 (ej. 1 a 729 para N=81)
+                        hald_x <- r + (g_lo * N) + 1
+                        hald_y <- g_hi + (b * level) + 1
+                        
+                        hald_array[hald_y, hald_x, 1] <- norm_r
+                        hald_array[hald_y, hald_x, 2] <- norm_g
+                        hald_array[hald_y, hald_x, 3] <- norm_b
+                    }
+                }
+            }
+            
+            ext_out <- get_file_ext(output_hald_path)
+            if (ext_out %in% c("tif", "tiff")) {
+                writeTIFF(hald_array, output_hald_path, bits.per.sample = 16)
+            } else if (ext_out == "png") {
+                writePNG(hald_array, output_hald_path)
+            } else {
+                stop("Unsupported format for HaldCLUT. Use .png or .tiff extension.")
+            }
+            
+            cat("✓ Saved identity HaldCLUT to:", output_hald_path, "\n")
+        }
+    }
+    
+    invisible(TRUE)
+}
+
+
+# 5. LUT 3D Visualization from .cube format LUT
+
+# Native LUT Dimensions & Divisibility: a standard 3D LUT with resolution N has N^3 discrete sample nodes
+# indexed from 0 to N-1 along each axis.
+# To avoid interpolation artifacts in the visualization, choose step sizes (s) such that:
+# (N - 1) %% s = 0 -> grid = (N - 1) / s + 1 (integer value)
+# Examples:
+#   36x36x36 LUT -> N = 36 -> (36 - 1) %% s = 0 -> s = c(35,7,5,1)      -> grid = c(2,6,8,36)
+#   33x33x33 LUT -> N = 33 -> (33 - 1) %% s = 0 -> s = c(32,16,8,4,2,1) -> grid = c(2,3,5,9,17,33)
 
 
 # ============================================================
@@ -717,6 +963,7 @@ plot_lut <- function(
 
 
 
+
 ##################################
 # EJEMPLO 1: PROCESADO COLOR RADICAL
 
@@ -814,4 +1061,17 @@ plot_lut(
     "lut_adobergb2prophoto.cube",
     grid = 8,
     line_width = 2
+)
+
+
+##################################
+# CONVERSIONES Y LUT IDENTIDAD
+
+# Identity LUT
+generate_identity_lut(N=81, output_cube_path=NULL, output_hald_path='solohald_81_corregida.tif')
+
+apply_lut(
+    input_image_path  = "otraimagen.tif",
+    lut_path          = "solohald_81_procesado.png",
+    output_image_path = "output_otraimagen.tif"
 )
