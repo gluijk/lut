@@ -1068,7 +1068,7 @@ plot_lut(
 ##################################
 # EJEMPLO 4: GENERACIÓN DE HALDCLUT DE PROCESADO A PARTIR DE HALDCLUT IDENTIDAD
 
-# Identity LUT
+# Identity LUT 3D 81x81x81 -> 729x729 HaldCLUT
 identity_lut(N=81, output_cube_path=NULL, output_hald_path='identity_haldclut_81.tif')  # saved as 16-bit TIFF
 
 apply_lut(
