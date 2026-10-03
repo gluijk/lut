@@ -300,11 +300,10 @@ convert_resample_lut <- function(input_lut_path,
 }
 
 
-
 # 4. Create Identity LUT (.cube + HaldCLUT whenever possible)
-generate_identity_lut <- function(N = 81, 
-                                  output_cube_path = "identity_lut.cube", 
-                                  output_hald_path = "identity_haldclut.png") {
+identity_lut <- function(N = 81, 
+                         output_cube_path = "identity_lut.cube", 
+                         output_hald_path = "identity_haldclut.png") {
     
     cat(paste0("Generating Identity LUT (N = ", N, ", Grid = ", N, "x", N, "x", N, ")...\n"))
     
@@ -321,6 +320,8 @@ generate_identity_lut <- function(N = 81,
             "# Created via generate_identity_lut()",
             paste0('TITLE "Generated_LUT_', N, 'x', N, 'x', N, '"'),
             paste0('LUT_3D_SIZE ', N),
+            # "DOMAIN_MIN 0.0 0.0 0.0",
+            # "DOMAIN_MAX 1.0 1.0 1.0"
             ''
         ), con)
         
@@ -1068,7 +1069,7 @@ plot_lut(
 # CONVERSIONES Y LUT IDENTIDAD
 
 # Identity LUT
-generate_identity_lut(N=81, output_cube_path=NULL, output_hald_path='solohald_81_corregida.tif')
+identity_lut(N=81, output_cube_path=NULL, output_hald_path='solohald_81_corregida.tif')
 
 apply_lut(
     input_image_path  = "otraimagen.tif",
