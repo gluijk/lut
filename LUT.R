@@ -24,7 +24,7 @@ sourceCpp("convert_LUT.cpp")
 build_lut <- function(img_in_path, 
                      img_out_path, 
                      output_base_path, 
-                     N = 33, 
+                     N = 36, 
                      k_neighbors = 8, 
                      power = 2.0, 
                      apply_smooth = FALSE, sigma = 0.8,  # gaussian blur parameter
@@ -301,7 +301,7 @@ convert_resample_lut <- function(input_lut_path,
 
 
 # 4. Create Identity LUT (.cube + HaldCLUT whenever possible)
-identity_lut <- function(N = 81, 
+identity_lut <- function(N = 36, 
                          output_cube_path = "identity_lut.cube", 
                          output_hald_path = "identity_haldclut.png") {
     
