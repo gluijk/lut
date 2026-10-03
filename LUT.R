@@ -1066,13 +1066,13 @@ plot_lut(
 
 
 ##################################
-# CONVERSIONES Y LUT IDENTIDAD
+# EJEMPLO 4: GENERACIÓN DE HALDCLUT DE PROCESADO A PARTIR DE HALDCLUT IDENTIDAD
 
 # Identity LUT
-identity_lut(N=81, output_cube_path=NULL, output_hald_path='solohald_81_corregida.tif')
+identity_lut(N=81, output_cube_path=NULL, output_hald_path='identity_haldclut_81.tif')  # saved as 16-bit TIFF
 
 apply_lut(
     input_image_path  = "otraimagen.tif",
-    lut_path          = "solohald_81_procesado.png",
+    lut_path          = "identity_haldclut_81_procesado.png",  # saved as 16-bit PNG
     output_image_path = "output_otraimagen.tif"
 )
